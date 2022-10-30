@@ -1434,3 +1434,190 @@ index eb9416b..6d263aa 100644
 -- 
 GitLab
 
+From f38867c44dece7615267e353c550b4eaeb0a6fb1 Mon Sep 17 00:00:00 2001
+From: Frediano Ziglio <freddy77@gmail.com>
+Date: Sun, 21 Aug 2022 11:45:57 +0100
+Subject: [PATCH] Detect Apple H/W CD support better
+
+Hardware support for Apple iOS is not available, check correctly
+and not try to use it.
+
+Signed-off-by: Frediano Ziglio <freddy77@gmail.com>
+---
+ meson.build         | 11 ++---------
+ meson_options.txt   |  4 ----
+ src/usb-device-cd.c | 32 ++++++++++----------------------
+ 3 files changed, 12 insertions(+), 35 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 5bc275a2..7fc9cf50 100644
+--- a/meson.build
++++ b/meson.build
+@@ -64,7 +64,8 @@ headers = [
+   'sys/types.h',
+   'netinet/in.h',
+   'arpa/inet.h',
+-  'valgrind/valgrind.h'
++  'valgrind/valgrind.h',
++  'sys/disk.h'
+ ]
+ 
+ foreach header : headers
+@@ -234,19 +235,11 @@ if d1.found() and d2.found() and d3.found()
+     spice_glib_deps += [d1, d2, d3]
+     spice_gtk_config_data.set('USE_USBREDIR', '1')
+     spice_gtk_has_usbredir = true
+-    if get_option('physical-cd').allowed()
+-      spice_gtk_config_data.set('HAVE_PHYSICAL_CD', '1')
+-    endif
+   else
+     warning('USB redirection disabled on big endian machine as ' +
+             'usbredir only support little endian')
+   endif
+ endif
+-summary_info += {'physical-cd': get_option('physical-cd')}
+-
+-if get_option('physical-cd').enabled() and not spice_gtk_has_usbredir
+-  error('Physical CD support cannot be enabled without USB redirection support!')
+-endif
+ 
+ d = dependency('libcap-ng', required : get_option('libcap-ng'))
+ summary_info += {'libcap-ng': d.found()}
+diff --git a/meson_options.txt b/meson_options.txt
+index 557ef6af..5acfc9a2 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -19,10 +19,6 @@ option('usbredir',
+     type : 'feature',
+     description : 'Enable usbredir support')
+ 
+-option('physical-cd',
+-    type : 'feature',
+-    description : 'Enable support of physical CD drives')
+-
+ option('libcap-ng',
+        type : 'feature',
+        description: 'Enable libcap-ng support for the USB acl helper')
+diff --git a/src/usb-device-cd.c b/src/usb-device-cd.c
+index d0cac305..cc7bab91 100644
+--- a/src/usb-device-cd.c
++++ b/src/usb-device-cd.c
+@@ -30,24 +30,23 @@
+ #include <libusb.h>
+ #include <fcntl.h>
+ 
++#define HAVE_PHYSICAL_CD 1
+ #ifdef G_OS_WIN32
+ #include <windows.h>
+-#ifdef HAVE_PHYSICAL_CD
+ #include <ntddcdrm.h>
+ #include <ntddmmc.h>
+-#endif // HAVE_PHYSICAL_CD
+ #else
+ #include <sys/stat.h>
+ #include <sys/ioctl.h>
+-#ifdef HAVE_PHYSICAL_CD
+-#ifdef __APPLE__
++#if defined(__APPLE__) && defined(HAVE_SYS_DISK_H)
+ #include <sys/disk.h>
+ #include <fcntl.h>
+-#else
++#elif defined(__linux__)
+ #include <linux/fs.h>
+ #include <linux/cdrom.h>
++#else
++#undef HAVE_PHYSICAL_CD
+ #endif
+-#endif // HAVE_PHYSICAL_CD
+ #endif
+ 
+ #include "usb-emulation.h"
+@@ -60,7 +59,9 @@ typedef struct SpiceCdLU {
+     uint64_t size;
+     uint32_t blockSize;
+     uint32_t loaded : 1;
++#ifdef HAVE_PHYSICAL_CD
+     uint32_t device : 1;
++#endif
+ } SpiceCdLU;
+ 
+ #define MAX_LUN_PER_DEVICE              1
+@@ -103,7 +104,9 @@ typedef struct SpiceUsbEmulatedDevice UsbCd;
+ 
+ static int cd_device_open_stream(SpiceCdLU *unit, const char *filename)
+ {
++#ifdef HAVE_PHYSICAL_CD
+     unit->device = 0;
++#endif
+ 
+     if (!unit->filename && !filename) {
+         SPICE_DEBUG("%s: file name not provided", __FUNCTION__);
+@@ -164,7 +167,7 @@ static int cd_device_open_stream(SpiceCdLU *unit, const char *filename)
+     return 0;
+ }
+ 
+-#if defined HAVE_PHYSICAL_CD
++#ifdef HAVE_PHYSICAL_CD
+ 
+ static int cd_device_load(SpiceCdLU *unit, gboolean load)
+ {
+@@ -251,8 +254,6 @@ static HANDLE open_file(const char *filename)
+     return h;
+ }
+ 
+-#ifdef HAVE_PHYSICAL_CD
+-
+ static uint32_t ioctl_out(HANDLE h, uint32_t code, void *out_buffer, uint32_t out_size)
+ {
+     uint32_t error;
+@@ -278,8 +279,6 @@ static gboolean check_device(HANDLE h)
+                            &ret, NULL);
+ }
+ 
+-#endif // HAVE_PHYSICAL_CD
+-
+ static int cd_device_open_stream(SpiceCdLU *unit, const char *filename)
+ {
+     HANDLE h;
+@@ -306,7 +305,6 @@ static int cd_device_open_stream(SpiceCdLU *unit, const char *filename)
+     }
+ 
+     LARGE_INTEGER size = { 0 };
+-#if defined HAVE_PHYSICAL_CD
+     if (!GetFileSizeEx(h, &size)) {
+         uint64_t buffer[256];
+         uint32_t res;
+@@ -324,12 +322,6 @@ static int cd_device_open_stream(SpiceCdLU *unit, const char *filename)
+                 __FUNCTION__, unit->filename, res);
+         }
+     }
+-#else
+-    if (!GetFileSizeEx(h, &size)) {
+-        SPICE_DEBUG("%s: can't get file size for %s", __FUNCTION__, unit->filename);
+-        return -1;
+-    }
+-#endif
+     unit->size = size.QuadPart;
+     CloseHandle(h);
+     if (unit->size) {
+@@ -344,8 +336,6 @@ static int cd_device_open_stream(SpiceCdLU *unit, const char *filename)
+     return 0;
+ }
+ 
+-#ifdef HAVE_PHYSICAL_CD
+-
+ static int cd_device_load(SpiceCdLU *unit, gboolean load)
+ {
+     int error = 0;
+@@ -391,8 +381,6 @@ static int cd_device_check(SpiceCdLU *unit)
+     return error;
+ }
+ 
+-#endif // HAVE_PHYSICAL_CD
+-
+ #endif
+ 
+ static gboolean open_stream(SpiceCdLU *unit, const char *filename)
+-- 
+GitLab
+
