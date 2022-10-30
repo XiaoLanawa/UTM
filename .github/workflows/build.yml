@@ -39,6 +39,8 @@ jobs:
             platform: ios
           - arch: x86_64
             platform: ios-tci
+          - arch: arm64
+            platform: ios-tci
     steps:
       - name: Checkout
         uses: actions/checkout@v3
