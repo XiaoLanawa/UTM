@@ -41,6 +41,8 @@ EPOXY_REPO="https://github.com/utmapp/libepoxy.git"
 EPOXY_COMMIT="266d2290a437c655f7419e85af06bfbb73a720c4"
 VIRGLRENDERER_REPO="https://github.com/utmapp/virglrenderer.git"
 VIRGLRENDERER_COMMIT="2415ce6e2d66d2892bf214daf123b6d7bb2af9dc"
+MOLTENVK_REPO="https://github.com/KhronosGroup/MoltenVK.git"
+MOLTENVK_COMMIT="67d59ae3ee7a129e66cc4e6e97d7391d71463558"
 
 # Decompiled Hypervisor for iOS
 HYPERVISOR_REPO="https://github.com/utmapp/Hypervisor.git"
